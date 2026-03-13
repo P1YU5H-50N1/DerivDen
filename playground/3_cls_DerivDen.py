@@ -6,6 +6,8 @@ app = marimo.App(width="medium")
 
 @app.cell
 def _():
+    import os
+    os.environ["MARIMO_NO multiprocessing"] = "1"  
     import marimo as mo
     import hvplot.polars
     import httpx
@@ -33,6 +35,7 @@ def _():
         httpx,
         json,
         mo,
+        os,
         pd,
         pl,
         sleep,
@@ -68,6 +71,7 @@ def _(
     httpx,
     json,
     mo,
+    os,
     pd,
     pl,
     sleep,
@@ -171,15 +175,27 @@ def _(
             self.forecast_fetch_interval = forecast_fetch_interval
             self.spot = None
             self.default_stake = 10
+            self.cache_dir = "data/api_response/synth/"
+            os.makedirs(self.cache_dir, exist_ok=True)
 
         def fetch_synth_forecast(self):
             base_url = "https://api.synthdata.co/"
             pctile_url = f"{base_url}insights/prediction-percentiles"
             headers = {"Authorization": f"Apikey {self.api_key}"}
 
-            response = httpx.get(pctile_url, headers=headers, params=self.params)
+            response = httpx.get(
+                pctile_url, headers=headers, params=self.params, timeout=300
+            )
             response.raise_for_status()
             res = response.json()
+            cache_file = f"data/api_response/synth/{datetime.now().strftime('%Y%m%d_%I%M%S')}.json"
+
+            with open(
+                cache_file,
+                "w",
+            ) as f:
+                json.dump(res, f)
+
             forecast_start_time = res.get("forecast_start_time")
             self.current_spot = res.get("current_price")
             pctile_raw = res.get("forecast_future").get("percentiles")
@@ -261,7 +277,7 @@ def _(
                 )
             )
             self.fair_payouts = fair_payouts_w_dist.to_pandas().set_index(
-                "expiration_ts"
+                "readable_ts"
             )
             return self.fair_payouts
 
@@ -280,6 +296,8 @@ def _(
                                 selection="multi",
                                 pagination=True,
                                 page_size=50,
+                                show_column_summaries=False,
+                                label="DerivDen",
                             ),
                         ]
                     )
@@ -293,10 +311,16 @@ def _(
                                 selection="multi",
                                 pagination=True,
                                 page_size=50,
+                                show_column_summaries=False,
+                                label="DerivDen",
                             ),
                         ]
                     )
                 )
+
+        def update_spot(self, spot_px):
+            fair_payouts = self.calculate_fair_payouts(spot_px=spot_px)
+            # self.update_ui_data()
 
         def start_worker(self):
             self.stop_evt.clear()
@@ -319,9 +343,9 @@ def _(
                             break
 
                         # Update the UI with the existing table and the new countdown
-                        self.update_ui_data(
-                            f"**Next data refresh in:** `{remaining}s`"
-                        )
+                        # self.update_ui_data(
+                        #     f"**Next data refresh in:** `{remaining}s`"
+                        # )
 
                         sleep(1)
             except Exception as e:
@@ -359,6 +383,15 @@ def _(
             self.synth_worker: SynthWorker = synth_worker
             self.payouts = payouts
             self.ws_msg_history = deque(maxlen=100)
+            self.columns_to_be_styled = ["c_fair_payout", "p_fair_payout"]
+            self.reference_col = {
+                "c_fair_payout": "CE-payout",
+                "p_fair_payout": "PE-payout",
+            }
+            self.display_col_seq = "contract,CE-payout,c_fair_payout,CE_spot_ts,PE-payout,p_fair_payout,PE_spot_ts".split(
+                ","
+            )
+            self.uly_symbol = "frxXAUUSD"
 
         def get_ws_url(self):
             base_url = "https://api.derivws.com"
@@ -441,6 +474,54 @@ def _(
 
             mo.Thread(target=run).start()
 
+        def update_ui(self):
+            def style_cell(_rowId, _columnName, value):
+                if _columnName not in self.columns_to_be_styled:
+                    return {}
+
+                mkt_payout_col = self.reference_col.get(_columnName)
+                mkt_payout = deriv_listner.payouts.iloc[int(_rowId)][
+                    mkt_payout_col
+                ]
+
+                try:
+                    # Percentage difference for relative scaling
+                    pct_diff = (mkt_payout - value) / value if value != 0 else 0
+                    max_pct = 0.5  # 50% difference = max intensity
+
+                    intensity = min(abs(pct_diff) / max_pct, 1.0)
+
+                    if pct_diff > 0:
+                        # Green: hsl(120, saturation%, 50%)
+                        sat = int(30 + 70 * intensity)
+                        bg = f"hsl(120, {sat}%, {50 - 20 * intensity}%)"
+                    else:
+                        # Red: hsl(0, saturation%, 50%)
+                        sat = int(30 + 70 * intensity)
+                        bg = f"hsl(0, {sat}%, {50 - 20 * intensity}%)"
+                except:
+                    return {}
+
+                return {
+                    "backgroundColor": bg,
+                    "color": "white" if intensity > 0.4 else "black",
+                    "fontWeight": "bold",
+                }
+
+            mo.output.replace(
+                mo.ui.table(
+                    self.payouts.reset_index()[self.display_col_seq],
+                    pagination=True,
+                    page_size=20,
+                    style_cell=style_cell,
+                    show_column_summaries=False,
+                    show_download=False,
+                    show_data_types=False,
+                    selection="multi-cell",
+                    label=f"{self.uly_symbol} Mkt Payout Vs Fair Payout For Rise/Fall Binary Options at current spot",
+                )
+            )
+
         def _on_message(self, ws, message):
             try:
                 self.ws_msg_history.append(message)
@@ -454,6 +535,9 @@ def _(
                     spot_time_str = self.to_readable(
                         msg["proposal"]["spot_time"], with_date=False
                     )
+                    spot_px = msg["proposal"]["spot"]
+
+                    self.synth_worker.update_spot(spot_px)
 
                     # Determine columns based on type
                     is_call = req["contract_type"] == "CALL"
@@ -470,19 +554,18 @@ def _(
 
                     # Lookup fair payout from the SynthWorker data
                     if expiry_str in self.synth_worker.fair_payouts.index:
-                        self.payouts.loc[expiry_str, f_col] = (
-                            self.fair_payouts.loc[expiry_str, f_col]
+                        self.payouts.loc[expiry_str, f_col] = round(
+                            float(
+                                self.synth_worker.fair_payouts.loc[
+                                    expiry_str, f_col
+                                ]
+                            ),
+                            2,
                         )
 
                     # Update UI
-                    mo.output.replace(
-                        mo.ui.table(
-                            self.payouts.reset_index(),
-                            selection="multi",
-                            pagination=True,
-                            page_size=20,
-                        )
-                    )
+                    self.update_ui()
+
             except Exception as e:
                 err_stack = traceback.format_exc()
                 print(f"Message Processing Error: {e} \n {err_stack}")
@@ -523,6 +606,7 @@ def _(
             print("Got ws url")
             # Start the WebSocket in a background thread
             mo.Thread(target=run_ws).start()
+            self.synth_worker.start()
 
 
     fair_payouts = pd.DataFrame(
@@ -582,60 +666,15 @@ def _(
         synth_worker=synth_worker,
     )
     deriv_listner.start()
-    return (synth_worker,)
-
-
-@app.cell
-def _():
-    # deriv_listner.stop()
-    return
-
-
-@app.cell
-def _():
-    # res = synth_worker.fetch_synth_forecast()
-    return
-
-
-@app.cell
-def _():
-    # deriv_listner.expirations_ts
-    return
-
-
-@app.cell
-def _():
-    # synth_worker.forecasted_expires_ts
-    return
-
-
-@app.cell
-def _():
-    # synth_worker.start_worker()
-    return
-
-
-@app.cell
-def _():
-    # synth_worker.stop_evt.set()
-    return
-
-
-@app.cell
-def _(synth_worker):
-    synth_worker.is_running
-    return
-
-
-@app.cell
-def _(synth_worker):
-    synth_worker.stop_evt.is_set()
     return
 
 
 @app.cell
 def _():
     # synth_worker.stop_worker()
+    # deriv_listner.stop()
+    # # del synth_worker
+    # # del deriv_listner
     return
 
 
