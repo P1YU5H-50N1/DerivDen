@@ -86,8 +86,11 @@ def build_hft_dashboard(
     msg_count = getattr(deriv_listner, "_message_counter", 0)
     ws_log_raw = list(getattr(deriv_listner, "ws_msg_history", []))
     is_running = getattr(deriv_listner, "is_running", False)
+    synth_running = getattr(synth_worker, "is_running", False)
     ws_status_cls = "status-live" if is_running else "status-ws"
-    ws_status_lbl = "WS · LIVE" if is_running else "WS · CONNECTING"
+    ws_status_lbl = "WS · LIVE" if is_running else "WS · STOPPED"
+    synth_status_cls = "status-live" if synth_running else "status-ws"
+    synth_status_lbl = "SYNTH · LIVE" if synth_running else "SYNTH · STOPPED"
     uly = getattr(deriv_listner, "uly_symbol", "frxXAUUSD")
     now_str = datetime.now().strftime("%d %b %Y  %H:%M:%S IST")
 
@@ -224,7 +227,7 @@ def build_hft_dashboard(
     </div>
     <div style="font-size:10px;color:var(--t-text-dim);letter-spacing:.08em;">{now_str}</div>
     <div style="display:flex;gap:10px;align-items:center;">
-      <span class="status-pill status-live">SYNTH · LIVE</span>
+      <span class="status-pill {synth_status_cls}">{synth_status_lbl}</span>
       <span class="status-pill {ws_status_cls}">{ws_status_lbl}</span>
     </div>
   </div>
@@ -259,7 +262,7 @@ def build_hft_dashboard(
       <span class="chip-val">{msg_count}</span>
     </div>
     <div class="stat-chip">
-      <span class="chip-label"><span class="refresh-ring"></span>{forecast_fetch_interval}s</span>
+      <span class="chip-label"><span class="refresh-ring"></span>{synth_worker.forecast_fetch_interval}s</span>
     </div>
   </div>
 

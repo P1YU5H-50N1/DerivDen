@@ -122,9 +122,15 @@ def _(mo):
     refresh = mo.ui.refresh(
         options=["1s", "2s", "5s", "10s"],
         default_interval="1s",
+        label="Dashboard refresh interval",
     )
     refresh  # <-- renders the interval picker in the notebook
     return (refresh,)
+
+
+@app.cell
+def _():
+    return
 
 
 @app.cell
@@ -148,6 +154,62 @@ def _(deriv_listner, forecast_fetch_interval, payouts, refresh, synth_worker):
 def _():
     # deriv_listner.stop()
     # synth_worker.stop_worker()
+    return
+
+
+@app.cell
+def _(mo, synth_worker):
+    interval_slider = mo.ui.slider(
+        start=60,
+        stop=1800,
+        step=60,
+        value=synth_worker.forecast_fetch_interval,
+        label="Synth refresh interval (s)",
+        show_value=True,
+    )
+    worker_switch = mo.ui.switch(value=True, label="DataListeners")
+
+    mo.hstack([interval_slider, worker_switch], gap="2rem", align="center")
+
+
+    # Cell 2: consume .value — only reads, never creates UI elements
+    return interval_slider, worker_switch
+
+
+@app.cell
+def _(
+    deriv_listner,
+    interval_slider,
+    mo,
+    payouts,
+    synth_worker,
+    worker_switch,
+):
+    synth_worker.set_interval(interval_slider.value)
+
+    mo.stop(
+        not worker_switch.value
+        and synth_worker.is_running is False
+        and deriv_listner.is_running is False
+    )
+
+    if not worker_switch.value and (
+        synth_worker.is_running or deriv_listner.is_running
+    ):
+        # Stop both workers
+        synth_worker.stop_worker()
+        deriv_listner.stop()
+        # Clear stale option chain data so the table shows empty until fresh data arrives
+        # payouts.drop(payouts.index, inplace=True)
+
+    elif (
+        worker_switch.value
+        and not synth_worker.is_running
+        and not deriv_listner.is_running
+    ):
+        # Clear before restart too — previous session rows have wrong expiry timestamps
+        payouts.drop(payouts.index, inplace=True)
+        deriv_listner.start()
     return
 
 

@@ -39,6 +39,9 @@ class SynthWorker:
         self.cache_dir = "data/api_response/synth/"
         os.makedirs(self.cache_dir, exist_ok=True)
 
+    def set_interval(self, seconds: int):
+        self.forecast_fetch_interval = seconds
+
     def fetch_synth_forecast(self):
         base_url = "https://api.synthdata.co/"
         pctile_url = f"{base_url}insights/prediction-percentiles"
@@ -159,14 +162,12 @@ class SynthWorker:
                 fair_payouts = self.calculate_fair_payouts(spot_px=current_spot)
                 # stop_fetching_forecast.wait(timeout=self.forecast_fetch_interval)
 
-                for remaining in range(self.forecast_fetch_interval, 0, -1):
-                    if self.stop_evt.is_set():
+                elapsed = 0
+                while not self.stop_evt.is_set():
+                    if elapsed >= self.forecast_fetch_interval:
                         break
-
-                    # Update the UI with the existing table and the new countdown
-                    # self.update_ui_data(
-                    #     f"**Next data refresh in:** `{remaining}s`"
-                    # )
+                    sleep(1)
+                    elapsed += 1
 
                     sleep(1)
         except Exception as e:
