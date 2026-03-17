@@ -25,11 +25,12 @@ def _():
     import json
     from time import sleep
     from dotenv import load_dotenv
+    import io, contextlib
 
     load_dotenv()
     from adapters import DeriveListner, SynthWorker
 
-    return DeriveListner, SynthWorker, mo, os, pd
+    return DeriveListner, SynthWorker, mo, os, pd, traceback
 
 
 @app.cell
@@ -147,6 +148,62 @@ def _(deriv_listner, forecast_fetch_interval, payouts, refresh, synth_worker):
 def _():
     # deriv_listner.stop()
     # synth_worker.stop_worker()
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _(mo):
+    repl_editor = mo.ui.code_editor(
+        value="# Access any live variable: payouts, synth_worker, deriv_listner\n",
+        language="python",
+        min_height=120,
+    )
+    repl_run = mo.ui.run_button(label="Run", kind="success")
+
+    mo.vstack(
+        [
+            mo.md("**Analyse or Shoot Orders**"),
+            repl_editor,
+            repl_run,
+        ]
+    )
+
+
+    # Cell: REPL execution — only fires when button is clicked
+    return repl_editor, repl_run
+
+
+@app.cell
+def _(
+    deriv_listner,
+    mo,
+    payouts,
+    repl_editor,
+    repl_run,
+    synth_worker,
+    traceback,
+):
+    mo.stop(not repl_run.value)
+
+
+    _ns = globals() | {
+        "payouts": payouts,
+        "synth_worker": synth_worker,
+        "deriv_listner": deriv_listner,
+        "mo": mo,
+    }
+    try:
+        with mo.redirect_stdout():
+            exec(repl_editor.value, _ns)
+    except Exception:
+        mo.output.append(
+            mo.callout(mo.md(f"```\n{traceback.format_exc()}\n```"), kind="danger")
+        )
     return
 
 

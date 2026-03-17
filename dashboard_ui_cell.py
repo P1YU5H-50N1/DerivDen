@@ -138,28 +138,37 @@ def build_hft_dashboard(
         pe_mkt = safe_float(row, "PE-payout")
         c_fair = safe_float(row, "c_fair_payout")
         p_fair = safe_float(row, "p_fair_payout")
-        c_edge = row.get("c_edge_pct", "")
-        p_edge = row.get("p_edge_pct", "")
+
+        def _edge_val(col):
+            v = row[col] if col in row.index else None
+            if v is None or (isinstance(v, float) and pd.isna(v)):
+                return None
+            try:
+                return float(v)
+            except Exception:
+                return None
+
+        c_edge_v = _edge_val("c_edge_pct")
+        p_edge_v = _edge_val("p_edge_pct")
+        c_edge = c_edge_v if c_edge_v is not None else ""
+        p_edge = p_edge_v if p_edge_v is not None else ""
         ce_ts = short_ts(row.get("CE_spot_ts"))
         pe_ts = short_ts(row.get("PE_spot_ts"))
         exp_s = str(expiry)[11:19] if len(str(expiry)) > 11 else str(expiry)
 
-        try:
-            v = float(c_edge)
-            call_edges.append(v)
-            pos_edges += 1 if v >= 0 else 0
-            neg_edges += 1 if v < 0 else 0
-            if best_call is None or v > best_call:
-                best_call, best_call_key = v, exp_s
-        except Exception:
-            pass
-        try:
-            v = float(p_edge)
-            put_edges.append(v)
-            if best_put is None or v > best_put:
-                best_put = v
-        except Exception:
-            pass
+        if c_edge_v is not None:
+            call_edges.append(c_edge_v)
+            pos_edges += 1 if c_edge_v >= 0 else 0
+            neg_edges += 1 if c_edge_v < 0 else 0
+            if best_call is None or c_edge_v > best_call:
+                best_call, best_call_key = c_edge_v, exp_s
+
+        if p_edge_v is not None:
+            put_edges.append(p_edge_v)
+            pos_edges += 1 if p_edge_v >= 0 else 0
+            neg_edges += 1 if p_edge_v < 0 else 0
+            if best_put is None or p_edge_v > best_put:
+                best_put = p_edge_v
 
         c_fair_cls = "val-pos" if c_fair != "—" else "val-muted"
         p_fair_cls = "val-pos" if p_fair != "—" else "val-muted"
