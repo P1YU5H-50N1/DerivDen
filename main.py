@@ -1,7 +1,7 @@
 import marimo
 
 __generated_with = "0.20.4"
-app = marimo.App(width="medium")
+app = marimo.App(width="full")
 
 
 @app.cell
@@ -29,7 +29,7 @@ def _():
     load_dotenv()
     from adapters import DeriveListner, SynthWorker
 
-    return DeriveListner, SynthWorker, os, pd
+    return DeriveListner, SynthWorker, mo, os, pd
 
 
 @app.cell
@@ -111,12 +111,42 @@ def _(
         payouts=payouts,
         synth_worker=synth_worker,
     )
+    deriv_listner.update_ui = lambda: None
     deriv_listner.start()
+    return deriv_listner, forecast_fetch_interval, payouts, synth_worker
+
+
+@app.cell
+def _(mo):
+    refresh = mo.ui.refresh(
+        options=["1s", "2s", "5s", "10s"],
+        default_interval="1s",
+    )
+    refresh  # <-- renders the interval picker in the notebook
+    return (refresh,)
+
+
+@app.cell
+def _(deriv_listner, forecast_fetch_interval, payouts, refresh, synth_worker):
+    # Touch `refresh` so marimo re-runs this cell on every tick.
+    # The value itself is unused — the dependency is what matters.
+    _ = refresh
+
+    from dashboard_ui_cell import build_hft_dashboard
+
+    build_hft_dashboard(
+        payouts_df=payouts,
+        synth_worker=synth_worker,
+        deriv_listner=deriv_listner,
+        forecast_fetch_interval=forecast_fetch_interval,
+    )
     return
 
 
 @app.cell
 def _():
+    # deriv_listner.stop()
+    # synth_worker.stop_worker()
     return
 
 
