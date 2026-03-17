@@ -30,7 +30,7 @@ def _():
     load_dotenv()
     from adapters import DeriveListner, SynthWorker
 
-    return DeriveListner, SynthWorker, mo, os, pd, traceback
+    return DeriveListner, SynthWorker, mo, os, pd
 
 
 @app.cell
@@ -124,7 +124,7 @@ def _(mo):
         default_interval="1s",
         label="Dashboard refresh interval",
     )
-    refresh  # <-- renders the interval picker in the notebook
+    # refresh  # <-- renders the interval picker in the notebook
     return (refresh,)
 
 
@@ -141,13 +141,13 @@ def _(deriv_listner, forecast_fetch_interval, payouts, refresh, synth_worker):
 
     from dashboard_ui_cell import build_hft_dashboard
 
-    build_hft_dashboard(
+    dashboard = build_hft_dashboard(
         payouts_df=payouts,
         synth_worker=synth_worker,
         deriv_listner=deriv_listner,
         forecast_fetch_interval=forecast_fetch_interval,
     )
-    return
+    return (dashboard,)
 
 
 @app.cell
@@ -169,7 +169,7 @@ def _(mo, synth_worker):
     )
     worker_switch = mo.ui.switch(value=True, label="DataListeners")
 
-    mo.hstack([interval_slider, worker_switch], gap="2rem", align="center")
+    # mo.hstack([interval_slider, worker_switch], gap="2rem", align="center")
 
 
     # Cell 2: consume .value — only reads, never creates UI elements
@@ -214,58 +214,18 @@ def _(
 
 
 @app.cell
-def _():
-    return
-
-
-@app.cell
-def _(mo):
-    repl_editor = mo.ui.code_editor(
-        value="# Access any live variable: payouts, synth_worker, deriv_listner\n",
-        language="python",
-        min_height=120,
-    )
-    repl_run = mo.ui.run_button(label="Run", kind="success")
-
+def _(dashboard, interval_slider, mo, refresh, worker_switch):
     mo.vstack(
         [
-            mo.md("**Analyse or Shoot Orders**"),
-            repl_editor,
-            repl_run,
+            refresh,
+            dashboard,
+            mo.hstack(
+                [interval_slider, worker_switch],
+                gap="2rem",
+                align="center",
+            ),
         ]
     )
-
-
-    # Cell: REPL execution — only fires when button is clicked
-    return repl_editor, repl_run
-
-
-@app.cell
-def _(
-    deriv_listner,
-    mo,
-    payouts,
-    repl_editor,
-    repl_run,
-    synth_worker,
-    traceback,
-):
-    mo.stop(not repl_run.value)
-
-
-    _ns = globals() | {
-        "payouts": payouts,
-        "synth_worker": synth_worker,
-        "deriv_listner": deriv_listner,
-        "mo": mo,
-    }
-    try:
-        with mo.redirect_stdout():
-            exec(repl_editor.value, _ns)
-    except Exception:
-        mo.output.append(
-            mo.callout(mo.md(f"```\n{traceback.format_exc()}\n```"), kind="danger")
-        )
     return
 
 
